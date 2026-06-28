@@ -11,7 +11,7 @@ async def cursor_pagination(cursor: int | None = Query(default=None), limit: int
     if cursor is None:
         query = f"""
             SELECT * FROM {Transaction.__tablename__}
-            ORDER BY created_at DESC
+            ORDER BY id DESC
             LIMIT $1
         """
         params = (limit,)

@@ -15,7 +15,7 @@ async def offset_pagination(page: int = Query(1, ge=1), limit: int = Query(20, g
 
     query = f"""
         SELECT * FROM {Transaction.__tablename__} 
-        ORDER BY created_at DESC 
+        ORDER BY id DESC
         LIMIT $1
         OFFSET $2
     """
