@@ -1,0 +1,19 @@
+# Python virtual environments
+venv/
+.env
+.env.*
+
+# IDE settings
+.vscode/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs and local data
+*.log
+*.sqlite3
+
+
+spec.md

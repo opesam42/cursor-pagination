@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cursor Pagination Demo</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      body { margin: 0; background: #07111f; color: #f5f7fa; }
+      .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+      h1 { margin-bottom: 6px; }
+      .subtitle { color: #8da1b9; margin-bottom: 24px; }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(260px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+      .panel {
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 14px;
+        padding: 16px;
+        box-shadow: 0 12px 30px rgba(0,0,0,0.2);
+      }
+      .panel h2 { margin-top: 0; }
+      .meta {
+        display: flex;
+        justify-content: space-between;
+        color: #9eb0c4;
+        font-size: 0.95rem;
+        margin-bottom: 12px;
+      }
+      .status-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        font-weight: 600;
+      }
+      .success { background: rgba(34,197,94,0.2); color: #4ade80; }
+      .failed  { background: rgba(248,113,113,0.2); color: #f87171; }
+      .pending { background: rgba(249,115,22,0.2); color: #fb923c; }
+      .items { display: flex; flex-direction: column; gap: 10px; min-height: 220px; }
+      .item {
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 0.9rem;
+      }
+      .item strong { display: block; margin-bottom: 4px; }
+      .controls { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+      button {
+        border: none; padding: 8px 12px; border-radius: 8px;
+        cursor: pointer; background: #2563eb; color: white;
+      }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      .time-pill { padding: 4px 8px; border-radius: 999px; font-size: 0.85rem; font-weight: 600; }
+      .time-green  { background: rgba(34,197,94,0.2); color: #4ade80; }
+      .time-orange { background: rgba(249,115,22,0.2); color: #fb923c; }
+      .time-red    { background: rgba(248,113,113,0.2); color: #f87171; }
+      .chart-card {
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 14px;
+        padding: 16px;
+      }
+      canvas { width: 100%; height: 420px; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Cursor Pagination Demo</h1>
+      <div class="subtitle">Comparing offset, cursor, and keyset pagination over a 1M-row transaction table.</div>
+      <div class="subtitle">Click Next on each panel to paginate. Watch the timer — offset slows down, cursor does not.</div>
+
+      <div class="grid">
+        <section class="panel" id="offset-panel">
+          <h2>Offset</h2>
+          <div class="meta">
+            <span id="offset-meta">Page 1 / 50,000</span>
+            <span id="offset-time" class="time-pill time-green">⏱ 0.0ms</span>
+          </div>
+          <div class="items" id="offset-items"></div>
+        </section>
+
+        <section class="panel" id="cursor-panel">
+          <h2>Cursor</h2>
+          <div class="meta">
+            <span>Next 20 results</span>
+            <span id="cursor-time" class="time-pill time-green">⏱ 0.0ms</span>
+          </div>
+          <div class="items" id="cursor-items"></div>
+        </section>
+
+        <section class="panel" id="deferred-panel">
+          <h2>Deferred Join</h2>
+          <div class="meta">
+            <span>Page <span id="deferred-page-num">1</span></span>
+            <span id="deferred-time" class="time-pill time-green">⏱ 0.0ms</span>
+          </div>
+          <div class="items" id="deferred-items"></div>
+        </section>
+      </div>
+
+      <div style="text-align: center; margin-bottom: 24px;">
+        <button id="global-prev" disabled style="margin-right: 12px;">◀ Prev</button>
+        <span id="global-page-info" style="color: #8da1b9; font-size: 0.95rem;">Page 1</span>
+        <button id="global-next" style="margin-left: 12px;">Next ▶</button>
+      </div>
+
+      <div class="chart-card">
+        <canvas id="timingChart"></canvas>
+      </div>
+    </div>
+
+    <script>
+      // ── Chart setup ──────────────────────────────────────────────────────────
+      const chartLabels = [1, 10, 50, 100, 500, 1000, 5000, 10000, 50000];
+      const chart = new Chart(document.getElementById('timingChart'), {
+        type: 'line',
+        data: {
+          labels: chartLabels,
+          datasets: [
+            { label: 'Offset',  data: Array(chartLabels.length).fill(0), borderColor: '#60a5fa', backgroundColor: 'rgba(96,165,250,0.2)',  tension: 0.3, borderWidth: 2.5, pointRadius: 4 },
+            { label: 'Cursor',  data: Array(chartLabels.length).fill(0), borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.2)',   tension: 0.3, borderWidth: 2.5, pointRadius: 4 },
+            { label: 'Deferred Join',  data: Array(chartLabels.length).fill(0), borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.2)',   tension: 0.3, borderWidth: 2.5, pointRadius: 4 },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            title: { display: true, text: 'Query Time vs Page Depth — 1M Row Transaction Table' },
+          },
+          scales: {
+            y: { beginAtZero: true, title: { display: true, text: 'Response Time (ms)' }, grid: { color: 'rgba(255,255,255,0.1)' } },
+            x: { title: { display: true, text: 'Page depth' }, grid: { color: 'rgba(255,255,255,0.1)' } },
+          },
+        },
+      });
+
+      // ── State ────────────────────────────────────────────────────────────────
+      const state = {
+        offsetPage: 1,
+        cursorCursor: null,   // null = first page, number = next cursor ID
+        deferredPage: 1,
+      };
+
+      // ── Helpers ──────────────────────────────────────────────────────────────
+      function renderTimeBadge(value, el) {
+        const ms = Number(value || 0);
+        let klass = 'time-green';
+        if (ms > 100) klass = 'time-red';
+        else if (ms >= 10) klass = 'time-orange';
+        el.className = `time-pill ${klass}`;
+        el.textContent = `⏱ ${ms.toFixed(1)}ms`;
+      }
+
+      function renderItems(items, targetId) {
+        const container = document.getElementById(targetId);
+        container.innerHTML = '';
+        if (!items || !items.length) {
+          container.innerHTML = '<div class="item">No rows returned yet.</div>';
+          return;
+        }
+        for (const item of items) {
+          const div = document.createElement('div');
+          div.className = 'item';
+          div.innerHTML = `
+            <strong>#${item.id}</strong>
+            <div>₦${Number(item.amount).toLocaleString()}</div>
+            <div>${item.merchant}</div>
+            <div><span class="status-badge ${item.status}">${item.status}</span></div>
+          `;
+          container.appendChild(div);
+        }
+      }
+
+      async function fetchJSON(url) {
+        const res = await fetch(url);
+        return res.json();
+      }
+
+      // ── Chart preload ────────────────────────────────────────────────────────
+      // Offset and deferred join support random-access by page number — fetch in any order.
+      // Cursor is sequential — each request needs the next_cursor from the previous one.
+      async function loadSeries() {
+        const values = {
+          offset: Array(chartLabels.length).fill(0),
+          cursor: Array(chartLabels.length).fill(0),
+          deferred: Array(chartLabels.length).fill(0),
+        };
+
+        // Offset — random access by page number
+        const offsetPages = [1, 10, 50, 100, 500, 1000, 5000, 10000, 50000];
+        for (let i = 0; i < offsetPages.length; i++) {
+          try {
+            const data = await fetchJSON(`/api/offset?page=${offsetPages[i]}&limit=20`);
+            values.offset[i] = Number(data.query_time_ms || 0);
+          } catch (_) { values.offset[i] = 0; }
+        }
+
+        // Deferred join — random access by page number
+        const deferredPages = [1, 10, 50, 100, 500, 1000, 5000, 10000, 50000];
+        for (let i = 0; i < deferredPages.length; i++) {
+          try {
+            const data = await fetchJSON(`/api/deferred?page=${deferredPages[i]}&limit=20`);
+            values.deferred[i] = Number(data.query_time_ms || 0);
+          } catch (_) { values.deferred[i] = 0; }
+        }
+
+        // Cursor — MUST be sequential. Each request uses next_cursor from previous.
+        // This is a fundamental property of cursor pagination — you cannot jump to page 5000.
+        // You must walk there step by step. This is also why it is consistently fast.
+        let cursorChartCursor = null;
+        for (let i = 0; i < chartLabels.length; i++) {
+          try {
+            const url = cursorChartCursor
+              ? `/api/cursor?cursor=${cursorChartCursor}&limit=20`
+              : `/api/cursor?limit=20`;
+            const data = await fetchJSON(url);
+            values.cursor[i] = Number(data.query_time_ms || 0);
+            cursorChartCursor = data.next_cursor;
+          } catch (_) { values.cursor[i] = 0; }
+        }
+
+        chart.data.datasets[0].data = values.offset;
+        chart.data.datasets[1].data = values.cursor;
+        chart.data.datasets[2].data = values.deferred;
+        chart.update();
+      }
+
+      // ── Panel loader ─────────────────────────────────────────────────────────
+      async function loadPanel(endpoint, targetId, timeId, params = {}) {
+        const url = new URL(endpoint, window.location.origin);
+        Object.entries(params).forEach(([k, v]) => {
+          if (v !== null && v !== undefined && v !== '') {
+            url.searchParams.set(k, v);
+          }
+        });
+        const data = await fetchJSON(url.toString());
+        renderItems(data.items || [], targetId);
+        renderTimeBadge(data.query_time_ms || 0, document.getElementById(timeId));
+        return data;
+      }
+
+      // ── Refresh all panels ───────────────────────────────────────────────────
+      async function refreshPanels() {
+        // Offset
+        const offsetData = await loadPanel(
+          '/api/offset', 'offset-items', 'offset-time',
+          { page: state.offsetPage, limit: 20 }
+        );
+        document.getElementById('offset-meta').textContent =
+          `Page ${state.offsetPage} / ${offsetData.total_pages || 50000}`;
+
+        // Cursor — pass current cursor, then update state with next_cursor from response
+        const cursorParams = { limit: 20 };
+        if (state.cursorCursor !== null) cursorParams.cursor = state.cursorCursor;
+        const cursorData = await loadPanel(
+          '/api/cursor', 'cursor-items', 'cursor-time', cursorParams
+        );
+        state.cursorCursor = cursorData.next_cursor;  // update for next click
+
+        // Deferred Join
+        const deferredData = await loadPanel(
+          '/api/deferred', 'deferred-items', 'deferred-time',
+          { page: state.deferredPage, limit: 20 }
+        );
+        document.getElementById('deferred-page-num').textContent = state.deferredPage;
+      }
+
+      // ── Button handlers ──────────────────────────────────────────────────────
+      document.getElementById('global-next').addEventListener('click', async () => {
+        state.offsetPage += 1;
+        state.deferredPage += 1;
+        // cursor advances automatically via state.cursorCursor updated in refreshPanels
+        document.getElementById('global-page-info').textContent = `Page ${state.offsetPage}`;
+        document.getElementById('global-prev').disabled = false;
+        await refreshPanels();
+      });
+
+      // Cursor cannot go backwards — when Prev is clicked, cursor resets to page 1
+      // This is a fundamental limitation of cursor pagination, not a bug
+      // It is worth mentioning in the article
+      document.getElementById('global-prev').addEventListener('click', async () => {
+        if (state.offsetPage > 1) {
+          state.offsetPage -= 1;
+          state.deferredPage -= 1;
+          state.cursorCursor = null; // reset cursor to beginning — cursor cannot go back
+          document.getElementById('global-page-info').textContent = `Page ${state.offsetPage}`;
+          document.getElementById('global-prev').disabled = state.offsetPage === 1;
+          await refreshPanels();
+        }
+      });
+
+      // ── Init ─────────────────────────────────────────────────────────────────
+      async function init() {
+        await loadSeries();
+        await refreshPanels();
+      }
+
+      init();
+    </script>
+  </body>
+</html>
