@@ -124,7 +124,6 @@
       </div>
 
       <div style="text-align: center; margin-bottom: 24px;">
-        <button id="global-prev" disabled style="margin-right: 12px;">◀ Prev</button>
         <span id="global-page-info" style="color: #8da1b9; font-size: 0.95rem;">Page 1</span>
         <button id="global-next" style="margin-left: 12px;">Next ▶</button>
       </div>
@@ -329,26 +328,20 @@
       }
 
       // ── Button handlers ──────────────────────────────────────────────────────
-      document.getElementById('global-next').addEventListener('click', async () => {
+      // Disabled for the duration of refreshPanels() — cursor's position only exists
+      // once the server responds with next_cursor, so a second click firing before
+      // that response lands would reuse the stale cursor and fall behind offset/deferred's
+      // synchronous page counters.
+      const nextButton = document.getElementById('global-next');
+      nextButton.addEventListener('click', async () => {
+        nextButton.disabled = true;
         state.offsetPage += 1;
         state.deferredPage += 1;
-        // cursor advances automatically via state.cursorCursor updated in refreshPanels
         document.getElementById('global-page-info').textContent = `Page ${state.offsetPage}`;
-        document.getElementById('global-prev').disabled = false;
-        await refreshPanels();
-      });
-
-      // Cursor cannot go backwards — when Prev is clicked, cursor resets to page 1
-      // This is a fundamental limitation of cursor pagination, not a bug
-      // It is worth mentioning in the article
-      document.getElementById('global-prev').addEventListener('click', async () => {
-        if (state.offsetPage > 1) {
-          state.offsetPage -= 1;
-          state.deferredPage -= 1;
-          state.cursorCursor = null; // reset cursor to beginning — cursor cannot go back
-          document.getElementById('global-page-info').textContent = `Page ${state.offsetPage}`;
-          document.getElementById('global-prev').disabled = state.offsetPage === 1;
+        try {
           await refreshPanels();
+        } finally {
+          nextButton.disabled = false;
         }
       });
 
