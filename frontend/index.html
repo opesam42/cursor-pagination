@@ -71,6 +71,9 @@
         padding: 16px;
       }
       canvas { width: 100%; height: 420px; }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
     </style>
   </head>
   <body>
@@ -86,7 +89,7 @@
             <span id="offset-meta">Page 1 / 50,000</span>
             <span id="offset-time" class="time-pill time-green">⏱ 0.0ms</span>
           </div>
-          <div class="items" id="offset-items"></div>
+          <div class="items" id="offset-items"><div class="item" style="color: #8da1b9; text-align: center; padding: 40px;">Loading...</div></div>
         </section>
 
         <section class="panel" id="cursor-panel">
@@ -95,7 +98,7 @@
             <span>Next 20 results</span>
             <span id="cursor-time" class="time-pill time-green">⏱ 0.0ms</span>
           </div>
-          <div class="items" id="cursor-items"></div>
+          <div class="items" id="cursor-items"><div class="item" style="color: #8da1b9; text-align: center; padding: 40px;">Loading...</div></div>
         </section>
 
         <section class="panel" id="deferred-panel">
@@ -104,7 +107,7 @@
             <span>Page <span id="deferred-page-num">1</span></span>
             <span id="deferred-time" class="time-pill time-green">⏱ 0.0ms</span>
           </div>
-          <div class="items" id="deferred-items"></div>
+          <div class="items" id="deferred-items"><div class="item" style="color: #8da1b9; text-align: center; padding: 40px;">Loading...</div></div>
         </section>
       </div>
 
@@ -115,7 +118,28 @@
       </div>
 
       <div class="chart-card">
-        <canvas id="timingChart"></canvas>
+        <div id="chart-loading" style="
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 420px;
+            gap: 16px;
+            color: #8da1b9;
+            font-size: 0.95rem;
+        ">
+            <div id="loading-spinner" style="
+                width: 40px;
+                height: 40px;
+                border: 3px solid rgba(255,255,255,0.1);
+                border-top-color: #60a5fa;
+                border-radius: 50%;
+                animation: spin 0.8s linear infinite;
+            "></div>
+            <div id="loading-text">Benchmarking pagination strategies...</div>
+            <div style="font-size: 0.8rem; color: #4a6480;">Fetching 27 data points across 1M rows</div>
+        </div>
+        <canvas id="timingChart" style="display: none;"></canvas>
       </div>
     </div>
 
@@ -191,6 +215,9 @@
       // Offset and deferred join support random-access by page number — fetch in any order.
       // Cursor is sequential — each request needs the next_cursor from the previous one.
       async function loadSeries() {
+        document.getElementById('chart-loading').style.display = 'flex';
+        document.getElementById('timingChart').style.display = 'none';
+
         const values = {
           offset: Array(chartLabels.length).fill(0),
           cursor: Array(chartLabels.length).fill(0),
@@ -204,7 +231,9 @@
             const data = await fetchJSON(`/api/offset?page=${offsetPages[i]}&limit=20`);
             values.offset[i] = Number(data.query_time_ms || 0);
           } catch (_) { values.offset[i] = 0; }
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
+        document.getElementById('loading-text').textContent = 'Offset done ✓ — running cursor benchmark...';
 
         // Deferred join — random access by page number
         const deferredPages = [1, 10, 50, 100, 500, 1000, 5000, 10000, 50000];
@@ -213,7 +242,9 @@
             const data = await fetchJSON(`/api/deferred?page=${deferredPages[i]}&limit=20`);
             values.deferred[i] = Number(data.query_time_ms || 0);
           } catch (_) { values.deferred[i] = 0; }
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
+        document.getElementById('loading-text').textContent = 'Deferred join done ✓ — running cursor benchmark...';
 
         // Cursor — MUST be sequential. Each request uses next_cursor from previous.
         // This is a fundamental property of cursor pagination — you cannot jump to page 5000.
@@ -224,15 +255,19 @@
             const url = cursorChartCursor
               ? `/api/cursor?cursor=${cursorChartCursor}&limit=20`
               : `/api/cursor?limit=20`;
+            document.getElementById('loading-text').textContent = `Cursor benchmark — walking page ${i + 1} of ${chartLabels.length}...`;
             const data = await fetchJSON(url);
             values.cursor[i] = Number(data.query_time_ms || 0);
             cursorChartCursor = data.next_cursor;
           } catch (_) { values.cursor[i] = 0; }
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
 
         chart.data.datasets[0].data = values.offset;
         chart.data.datasets[1].data = values.cursor;
         chart.data.datasets[2].data = values.deferred;
+        document.getElementById('chart-loading').style.display = 'none';
+        document.getElementById('timingChart').style.display = 'block';
         chart.update();
       }
 
@@ -252,6 +287,11 @@
 
       // ── Refresh all panels ───────────────────────────────────────────────────
       async function refreshPanels() {
+        ['offset-items', 'cursor-items', 'deferred-items'].forEach(id => {
+          document.getElementById(id).innerHTML =
+            '<div class="item" style="color: #8da1b9; text-align: center; padding: 40px;">Loading...</div>';
+        });
+
         // Offset
         const offsetData = await loadPanel(
           '/api/offset', 'offset-items', 'offset-time',
@@ -302,6 +342,14 @@
 
       // ── Init ─────────────────────────────────────────────────────────────────
       async function init() {
+        document.getElementById('loading-text').textContent = 'Warming up database connection...';
+
+        // Wait for warmup to fully complete before benchmarking
+        try {
+          await fetchJSON('/api/offset?page=1&limit=1');
+          await new Promise(resolve => setTimeout(resolve, 500)); // brief pause after warmup
+        } catch (_) {}
+
         await loadSeries();
         await refreshPanels();
       }
