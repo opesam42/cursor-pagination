@@ -82,7 +82,7 @@
         border-radius: 14px;
         padding: 16px;
       }
-      canvas { width: 100%; height: 420px; }
+      .chart-wrap { position: relative; width: 100%; height: 420px; }
       @keyframes spin {
         to { transform: rotate(360deg); }
       }
@@ -150,7 +150,9 @@
             <div id="loading-text">Benchmarking pagination strategies...</div>
             <div style="font-size: 0.8rem; color: #4a6480;">Fetching 27 data points across 1M rows</div>
         </div>
-        <canvas id="timingChart" style="display: none;"></canvas>
+        <div class="chart-wrap">
+          <canvas id="timingChart" style="display: none;"></canvas>
+        </div>
         <div style="text-align: center; margin-top: 12px; font-size: 0.8rem; color: #4a6480;">
           Numbers measured live against a remote database — network latency and connection
           jitter can outweigh the actual query-time differences between strategies, especially
