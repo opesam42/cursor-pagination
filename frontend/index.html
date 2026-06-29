@@ -151,6 +151,12 @@
             <div style="font-size: 0.8rem; color: #4a6480;">Fetching 27 data points across 1M rows</div>
         </div>
         <canvas id="timingChart" style="display: none;"></canvas>
+        <div style="text-align: center; margin-top: 12px; font-size: 0.8rem; color: #4a6480;">
+          Numbers measured live against a remote database — network latency and connection
+          jitter can outweigh the actual query-time differences between strategies, especially
+          on first load. Treat the overall trend (offset degrading at depth) as the signal, not
+          any single point.
+        </div>
       </div>
     </div>
 
@@ -257,22 +263,17 @@
         }
         document.getElementById('loading-text').textContent = 'Deferred join done ✓ — running cursor benchmark...';
 
-        // Cursor — MUST be sequential. Each request uses next_cursor from previous.
-        // This is a fundamental property of cursor pagination — you cannot jump to page 5000.
-        // You must walk there step by step. This is also why it is consistently fast.
-        let cursorChartCursor = null;
-        for (let i = 0; i < chartLabels.length; i++) {
-          try {
-            const url = cursorChartCursor
-              ? `/api/cursor?cursor=${cursorChartCursor}&limit=20`
-              : `/api/cursor?limit=20`;
-            document.getElementById('loading-text').textContent = `Cursor benchmark — walking page ${i + 1} of ${chartLabels.length}...`;
-            const data = await fetchJSON(url);
-            values.cursor[i] = Number(data.query_time_ms || 0);
-            cursorChartCursor = data.next_cursor;
-          } catch (_) { values.cursor[i] = 0; }
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }
+        // Cursor — MUST be sequential, no jumping to a page. Walking it from the browser
+        // would mean one HTTP round-trip per step (thousands of them to reach page 50000).
+        // Instead the backend does the real step-by-step walk in one request, so the only
+        // cost left is genuine query time, not network latency.
+        document.getElementById('loading-text').textContent = 'Cursor benchmark — walking the table sequentially...';
+        try {
+          const data = await fetchJSON(`/api/cursor/benchmark?depths=${chartLabels.join(',')}&limit=20`);
+          for (let i = 0; i < chartLabels.length; i++) {
+            values.cursor[i] = Number(data.timings?.[chartLabels[i]] || 0);
+          }
+        } catch (_) { /* values.cursor already defaulted to 0 */ }
 
         chart.data.datasets[0].data = values.offset;
         chart.data.datasets[1].data = values.cursor;
