@@ -160,6 +160,16 @@
           any single point.
         </div>
       </div>
+
+      <div class="chart-card" style="margin-top: 24px;">
+        <div class="chart-wrap">
+          <canvas id="localChart"></canvas>
+        </div>
+        <div style="text-align: center; margin-top: 12px; font-size: 0.8rem; color: #4a6480;">
+          Same benchmark, captured against a local Postgres instance (no network latency) —
+          a clean look at how each strategy scales by query cost alone.
+        </div>
+      </div>
     </div>
 
     <script>
@@ -180,6 +190,36 @@
           maintainAspectRatio: false,
           plugins: {
             title: { display: true, text: 'Query Time vs Page Depth — 1M Row Transaction Table' },
+          },
+          scales: {
+            y: { beginAtZero: true, title: { display: true, text: 'Response Time (ms)' }, grid: { color: 'rgba(255,255,255,0.1)' } },
+            x: { title: { display: true, text: 'Page depth' }, grid: { color: 'rgba(255,255,255,0.1)' } },
+          },
+        },
+      });
+
+      // ── Local DB chart (static — captured once against a local Postgres instance) ──
+      const localBenchmark = {
+        labels: [1, 10, 50, 100, 500, 1000, 5000, 10000, 50000],
+        offset: [3.9, 7.24, 2.99, 4.87, 18.87, 25.59, 106.61, 115.07, 527.54],
+        cursor: [27.87, 6.15, 2.31, 13.34, 7.34, 4.69, 3.53, 3.47, 1.54],
+        deferred: [7.29, 2.82, 2.38, 2.88, 5.02, 5.65, 29.14, 24.86, 76.25],
+      };
+      new Chart(document.getElementById('localChart'), {
+        type: 'line',
+        data: {
+          labels: localBenchmark.labels,
+          datasets: [
+            { label: 'Offset',  data: localBenchmark.offset, borderColor: '#60a5fa', backgroundColor: 'rgba(96,165,250,0.2)',  tension: 0.3, borderWidth: 2.5, pointRadius: 4 },
+            { label: 'Cursor',  data: localBenchmark.cursor, borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.2)',   tension: 0.3, borderWidth: 2.5, pointRadius: 4 },
+            { label: 'Deferred Join',  data: localBenchmark.deferred, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.2)',   tension: 0.3, borderWidth: 2.5, pointRadius: 4 },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            title: { display: true, text: 'Query Time vs Page Depth — Local Database (1M Rows)' },
           },
           scales: {
             y: { beginAtZero: true, title: { display: true, text: 'Response Time (ms)' }, grid: { color: 'rgba(255,255,255,0.1)' } },
